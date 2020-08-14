@@ -1,0 +1,13 @@
+{application,hype,
+             [{description,"Handsome YAML Parser for Erlang"},
+              {vsn,"0.0.1"},
+              {registered,[]},
+              {applications,[kernel,stdlib]},
+              {env,[]},
+              {modules,[]},
+              {pkg_name,"hype"},
+              {licenses,["ISC"]},
+              {maintainers,["Eric Pailleau"]},
+              {links,[{"Github","https://github.com/crownedgrouse/hype"},
+                      {"Wiki",
+                       "https://github.com/crownedgrouse/hype/wiki"}]}]}.
