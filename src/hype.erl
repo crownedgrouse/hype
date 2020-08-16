@@ -3,7 +3,7 @@
 %%% @author    Eric Pailleau <hype@crownedgrouse.com>
 %%% @copyright 2020 crownedgrouse.com
 %%% @doc
-%%% Handsome YAML Parser for Erlang
+%%% Handsome YAML Processor for Erlang
 %%% @end
 %%%
 %%% Permission to use, copy, modify, and/or distribute this software
@@ -27,16 +27,16 @@
 
 -define(YAML_VERSION, "1.2").
 
--record(hype, {depth     = -1    :: integer() % internal use for structure depth indentation
-			  ,canonical = false :: boolean() % use canonical representation
-			  ,version   = true  :: boolean() % show yaml version
-			  ,types     = false :: boolean() % declare erlang types TAG ! tag:github.com/crownedgrouse/hype,2020:
-			  ,tag       = false :: boolean() % tag yaml type such as omap, set, binary, str 
-			  ,flow      = true  :: boolean() % use flow format, more compact
-			  ,width     = 80    :: integer() % fold string and binary to this width
-			  ,indent    = "   " :: string()  % indentation to be used
-			  ,footer    = true  :: boolean() % add ... footer or not
-	   		  }).
+-record(hype,	{depth     = -1    :: integer() % internal use for structure depth indentation
+                ,canonical = false :: boolean() % use canonical representation
+                ,version   = true  :: boolean() % show yaml version
+                ,types     = false :: boolean() % declare erlang types TAG ! tag:github.com/crownedgrouse/hype,2020:
+                ,tag       = false :: boolean() % tag yaml type such as omap, set, binary, str 
+                ,flow      = true  :: boolean() % use flow format, more compact
+                ,width     = 80    :: integer() % fold string and binary to this width
+                ,indent    = "   " :: string()  % indentation to be used
+                ,footer    = true  :: boolean() % add ... footer or not
+                }).
 %%-----------------------------------------------------------------------------
 %% @doc 
 %% @end
@@ -52,25 +52,25 @@ offset(Rec)
 opt2rec(Opt)
 	-> 
 	R = #hype{}, % default values
-	#hype{canonical = proplists:get_value(canonical, Opt, R#hype.canonical)
-	     ,version   = proplists:get_value(version,   Opt, R#hype.version)
-	     ,types     = proplists:get_value(types,     Opt, R#hype.types)
-	     ,tag       = proplists:get_value(tag,       Opt, R#hype.tag)
-	     ,flow      = proplists:get_value(flow,      Opt, R#hype.flow)
-	     ,width     = proplists:get_value(width,     Opt, R#hype.width)
-	     ,indent    = proplists:get_value(indent,    Opt, R#hype.indent)
-	     ,footer    = proplists:get_value(footer,    Opt, R#hype.footer)
-	     }.
+    #hype{canonical = proplists:get_value(canonical, Opt, R#hype.canonical)
+         ,version   = proplists:get_value(version,   Opt, R#hype.version)
+         ,types     = proplists:get_value(types,     Opt, R#hype.types)
+         ,tag       = proplists:get_value(tag,       Opt, R#hype.tag)
+         ,flow      = proplists:get_value(flow,      Opt, R#hype.flow)
+         ,width     = proplists:get_value(width,     Opt, R#hype.width)
+         ,indent    = proplists:get_value(indent,    Opt, R#hype.indent)
+         ,footer    = proplists:get_value(footer,    Opt, R#hype.footer)
+         }.
 
 
 print(Term) -> print(Term, []).
 	
 
 print(Term, Opt)
-	-> case encode(Term, Opt) of
-			{ok, D}    -> io:format("~ts", [D]);
-			X -> throw(X)
-	   end.
+    -> case encode(Term, Opt) of
+            {ok, D}    -> io:format("~ts", [D]);
+            X -> throw(X)
+       end.
 
 %%-----------------------------------------------------------------------------
 %% @doc Encode an Erlang Term to YAML
@@ -80,14 +80,14 @@ encode(Term)
 	-> encode(Term, []).
 
 encode(Term, Opt)
-	-> 
-	try 
-		S = structure(Term),
-		Rec = opt2rec(Opt),
-		{ok, presentation(S, Rec)}
-	catch
-		_:R -> {error, R}
-	end.
+    -> 
+    try 
+    	S = structure(Term),
+    	Rec = opt2rec(Opt),
+    	{ok, presentation(S, Rec)}
+    catch
+    	_:R -> {error, R}
+    end.
 
 
 %%-----------------------------------------------------------------------------
@@ -139,14 +139,14 @@ structure(Term)
 structure(Term)
 	when is_list(Term)
 	-> 
-	% Check if it is a string or a list of types
-	case io_lib:printable_list(Term) of
-		true  -> {string, Term};
-		false -> 
-			Fun = fun(X) -> [structure(X)] end,
-			Data = lists:flatmap(Fun, Term),
-			{list, Data}
-	end;
+    % Check if it is a string or a list of types
+    case io_lib:printable_list(Term) of
+        true  -> {string, Term};
+        false -> 
+            Fun = fun(X) -> [structure(X)] end,
+            Data = lists:flatmap(Fun, Term),
+            {list, Data}
+    end;
 %% Error unhandled type
 structure(Term)
 	-> 
@@ -157,18 +157,18 @@ structure(Term)
 %% @end
 %%-----------------------------------------------------------------------------
 presentation(Struc, Rec)
-	when (Rec#hype.depth =:= -1)  % Main entry point
-	->
-	H = header(Rec),
-	P = presentation(Struc, Rec#hype{depth=0}), % Init depth to 0
-	F = footer(Rec),
-	lists:flatten(H ++ P ++ F);
+    when (Rec#hype.depth =:= -1)  % Main entry point
+    ->
+    H = header(Rec),
+    P = presentation(Struc, Rec#hype{depth=0}), % Init depth to 0
+    F = footer(Rec),
+    lists:flatten(H ++ P ++ F);
 
 presentation({binary, B}, Rec)    % Binary
-	-> tag(binary, Rec),
-	   Enc = encoding(B),
-	   Raw = fold(Enc,Rec),
-	   indent(Raw, Rec).
+    -> tag(binary, Rec),
+       Enc = encoding(B),
+       Raw = fold(Enc,Rec),
+       indent(Raw, Rec).
 
 %%-----------------------------------------------------------------------------
 %% @doc Add YAML tags if necessary
@@ -181,8 +181,8 @@ tag(_, _) -> [].
 %% @end
 %%-----------------------------------------------------------------------------
 encoding(B)
-	when is_binary(B)
-	->  erlang:binary_to_list(B);
+    when is_binary(B)
+    ->  erlang:binary_to_list(B);
 encoding(B) -> B.
 
 %%-----------------------------------------------------------------------------
@@ -196,11 +196,11 @@ fold(R, _ ) -> R.
 %% @end
 %%-----------------------------------------------------------------------------
 indent(L, Rec) 
-	when is_list(L)
-	-> case io_lib:printable_list(L) of
-			false -> lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L);
-			true  -> offset(Rec) ++ [L]
-		end;
+    when is_list(L)
+    -> case io_lib:printable_list(L) of
+            false -> lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L);
+            true  -> offset(Rec) ++ [L]
+    	end;
 indent(L, Rec)
 	-> offset(Rec) ++ [L].
 
@@ -210,14 +210,14 @@ indent(L, Rec)
 %%-----------------------------------------------------------------------------
 header(Rec) -> 
 	T = case Rec#hype.types of
-			true -> "TAG ! tag:github.com/crownedgrouse/hype,2020" ;
-			false -> []
-		end,
+            true -> "TAG ! tag:github.com/crownedgrouse/hype,2020" ;
+            false -> []
+        end,
 	V = case Rec#hype.version of
-			true  -> io_lib:format("%YAML ~ts ~ts", [?YAML_VERSION, T]) ;
-			false -> []
-		end,
-	string:strip(string:chomp(V), right) ++ io_lib:nl().
+            true  -> io_lib:format("%YAML ~ts ~ts", [?YAML_VERSION, T]) ;
+            false -> []
+        end,
+    string:strip(string:chomp(V), right) ++ io_lib:nl().
 
 %%-----------------------------------------------------------------------------
 %% @doc Create footer
@@ -226,7 +226,7 @@ header(Rec) ->
 -spec footer(tuple()) -> list().
 
 footer(Rec)
-	when Rec#hype.footer =:= true
-	-> io_lib:nl() ++ "..." ++ io_lib:nl();
+    when Rec#hype.footer =:= true
+    -> io_lib:nl() ++ "..." ++ io_lib:nl();
 footer(_)
-	-> [].
+    -> [].
