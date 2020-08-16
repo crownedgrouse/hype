@@ -26,6 +26,12 @@
 -export([encode/1, encode/2, print/1, print/2]).
 
 -define(YAML_VERSION, "1.2").
+-define(PRESENT(T, Rec), 
+        Tag = tag(T, Rec),
+        Enc = encoding(B),
+        Raw = fold(Enc,Rec),
+        indent(Tag, Raw, comment(B, Rec), Rec)
+       ).
 
 -record(hype,	{depth     = -1    :: integer() % internal use for structure depth indentation
                 ,canonical = false :: boolean() % use canonical representation
@@ -36,6 +42,7 @@
                 ,width     = 80    :: integer() % fold string and binary to this width
                 ,indent    = "   " :: string()  % indentation to be used
                 ,footer    = false :: boolean() % add ... footer or not
+                ,comment   = false :: boolean() % add comment on data
                 }).
 %%-----------------------------------------------------------------------------
 %% @doc 
@@ -44,7 +51,6 @@
 offset(Rec)
 	when is_record(Rec, hype)
 	-> string:copies(Rec#hype.indent, Rec#hype.depth).
-
 
 split(D, L)
     when is_list(D),is_integer(L)
@@ -74,6 +80,7 @@ opt2rec(Opt)
          ,width     = proplists:get_value(width,     Opt, R#hype.width)
          ,indent    = proplists:get_value(indent,    Opt, R#hype.indent)
          ,footer    = proplists:get_value(footer,    Opt, R#hype.footer)
+         ,comment   = proplists:get_value(comment,   Opt, R#hype.comment)
          }.
 
 
@@ -125,22 +132,22 @@ structure(Term)
 	-> {boolean, Term};
 structure(Term)
 	when is_float(Term)
-	-> {float, Term};
+	-> {float, io_lib:format("~p",[Term])};
 structure(Term)
 	when is_function(Term)
 	-> {function, term_to_binary(Term)};
 structure(Term)
 	when is_integer(Term)
-	-> {integer, Term};
+	-> {integer, lists:flatten(io_lib:format("~p",[Term]))};
 structure(Term)
 	when is_pid(Term)
-	-> {pid, io_lib:format("~p", Term)};
+	-> {pid, term_to_binary(Term)};
 structure(Term)
 	when is_port(Term)
-	-> {port, io_lib:format("~p", Term)};
+	-> {port, term_to_binary(Term)};
 structure(Term)
 	when is_reference(Term)
-	-> {reference, io_lib:format("~p", Term)};
+	-> {reference, term_to_binary(Term)};
 %% Higher types
 structure(Term)
 	when is_tuple(Term)
@@ -180,27 +187,35 @@ presentation(Struc, Rec)
     H = header(Rec),
     P = presentation(Struc, Rec#hype{depth=0}), % Init depth to 0
     F = footer(Rec),
-    lists:flatten(H ++ P ++ F);
+    lists:flatten(H ++ P ++ F ++ io_lib:nl());
 
-presentation({atom, B}, Rec)    % Atom
-    -> Tag = tag(atom, Rec),
-       Enc = encoding(B),
-       Raw = fold(Enc,Rec),
-       indent(Tag, Raw, Rec);
-
+presentation({atom, B}, Rec)      % Atom
+    -> ?PRESENT(atom, Rec);
 presentation({binary, B}, Rec)    % Binary
-    -> Tag = tag(binary, Rec),
-       Enc = encoding(B),
-       Raw = fold(Enc,Rec),
-       indent(Tag, Raw, Rec);
-
-presentation({function, B}, Rec)    % Fun
-    -> Tag = tag(function, Rec),
-       Enc = encoding(B),
-       Raw = fold(Enc,Rec),
-       indent(Tag, Raw, Rec);      
+    -> ?PRESENT(binary, Rec);
+presentation({float, B}, Rec)     % Float
+    -> ?PRESENT(float, Rec);      
+presentation({function, B}, Rec)  % Fun
+    -> ?PRESENT(function, Rec);    
+presentation({integer, B}, Rec)   % Integer
+    -> ?PRESENT(integer, Rec);        
+presentation({pid, B}, Rec)       % Pid
+    -> ?PRESENT(pid, Rec);      
 
 presentation(_, _) -> throw(invalid_type).
+
+%%-----------------------------------------------------------------------------
+%% @doc Comment (only binary terms)
+%% @end
+%%-----------------------------------------------------------------------------
+comment(D, Rec) 
+    when Rec#hype.comment =:= true, is_binary(D)
+    ->  case (catch erlang:binary_to_term(D)) of
+            {'EXIT', _} -> [];
+            T -> io_lib:format(" # ~p", [T])
+        end;
+comment(_, _ ) 
+    -> [].
 
 %%-----------------------------------------------------------------------------
 %% @doc Add YAML tags if necessary
@@ -210,28 +225,28 @@ presentation(_, _) -> throw(invalid_type).
 %%-----------------------------------------------------------------------------
 tag(atom, Rec)   when Rec#hype.types =:= true
     -> "!atom ";
-tag(atom, Rec)   when Rec#hype.tag =:= true
+tag(atom, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!str ";
 tag(binary, Rec) when Rec#hype.types =:= true
     -> "!binary ";
-tag(binary, Rec) when Rec#hype.tag =:= true
+tag(binary, Rec) when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!binary ";
 tag(bitstring, Rec) when Rec#hype.types =:= true
     -> "!bitstring ";
-tag(bitstring, Rec) when Rec#hype.tag =:= true
+tag(bitstring, Rec) when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!binary ";
 tag(boolean, Rec)   when Rec#hype.types =:= true
     -> "!boolean ";
-tag(boolean, Rec)   when Rec#hype.tag =:= true
+tag(boolean, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!bool ";
 tag(float, Rec)   when Rec#hype.types =:= true
     -> "!float ";
-tag(float, Rec)   when Rec#hype.tag =:= true
+tag(float, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!float ";
 tag(function, Rec)   when Rec#hype.types =:= true
     -> "!function ";
-tag(function, Rec)   when Rec#hype.tag =:= true
-    -> "!! ";
+tag(function, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
+    -> "!!binary ";
 tag(_, _) -> [].
 
 %%-----------------------------------------------------------------------------
@@ -256,14 +271,25 @@ fold(D, _) -> D.
 %% @doc Indent data depending depth
 %% @end
 %%-----------------------------------------------------------------------------
-indent(_T, L, Rec) 
+indent(T, L, C, Rec) 
     when is_list(L)
-    -> case io_lib:printable_list(L) of
-            false -> lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
-            true  -> offset(Rec) ++ [L]
+    ->  % erlang:display(L),
+        case io_lib:printable_list(L) of
+            false when Rec#hype.canonical =:= false, 
+                       Rec#hype.tag =:= false
+                -> [$|] ++ C ++ io_lib:nl() ++lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
+            false when Rec#hype.canonical =:= false, 
+                       Rec#hype.tag =:= true
+                -> T ++ [$|] ++ C ++ io_lib:nl() ++ lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
+            false when Rec#hype.canonical =:= true
+                -> T ++ [$", $\\] ++ io_lib:nl() ++ offset(Rec) ++ lists:join([$\\, io_lib:nl()], lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L)) ++ [$"];
+            true  when Rec#hype.tag =:= false 
+                -> offset(Rec) ++ [L] ++ C ++ io_lib:nl() ;
+            true  when Rec#hype.tag =:= true 
+                -> T ++ offset(Rec) ++ [L] ++ C ++ io_lib:nl()
     	end;
-indent(_T, L, Rec)
-	-> offset(Rec) ++ [L].
+indent(_T, L, C, Rec)
+	-> offset(Rec) ++ [L] ++ C ++ io_lib:nl().
 
 %%-----------------------------------------------------------------------------
 %% @doc Create header 
