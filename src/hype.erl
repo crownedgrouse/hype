@@ -29,13 +29,13 @@
 
 -record(hype,	{depth     = -1    :: integer() % internal use for structure depth indentation
                 ,canonical = false :: boolean() % use canonical representation
-                ,version   = true  :: boolean() % show yaml version
+                ,version   = false :: boolean() % show yaml version
                 ,types     = false :: boolean() % declare erlang types TAG ! tag:github.com/crownedgrouse/hype,2020:
                 ,tag       = false :: boolean() % tag yaml type such as omap, set, binary, str 
                 ,flow      = true  :: boolean() % use flow format, more compact
                 ,width     = 80    :: integer() % fold string and binary to this width
                 ,indent    = "   " :: string()  % indentation to be used
-                ,footer    = true  :: boolean() % add ... footer or not
+                ,footer    = false :: boolean() % add ... footer or not
                 }).
 %%-----------------------------------------------------------------------------
 %% @doc 
@@ -45,13 +45,27 @@ offset(Rec)
 	when is_record(Rec, hype)
 	-> string:copies(Rec#hype.indent, Rec#hype.depth).
 
+
+split(D, L)
+    when is_list(D),is_integer(L)
+    -> split(D, L, []). 
+
+split(D, L, Acc)
+    -> case ( length(D) =< L ) of
+            true  ->  Acc ++ [D] ;
+            false -> 
+                ND   = string:sub_string(D, L + 1),
+                NAcc = string:sub_string(D, 1, L),
+                split(ND, L, Acc ++ [NAcc])
+       end.
+
 %%-----------------------------------------------------------------------------
 %% @doc Initialize record with proplists options or default value
 %% @end
 %%-----------------------------------------------------------------------------
 opt2rec(Opt)
 	-> 
-	R = #hype{}, % default values
+    R = #hype{}, % default values
     #hype{canonical = proplists:get_value(canonical, Opt, R#hype.canonical)
          ,version   = proplists:get_value(version,   Opt, R#hype.version)
          ,types     = proplists:get_value(types,     Opt, R#hype.types)
@@ -83,6 +97,7 @@ encode(Term, Opt)
     -> 
     try 
     	S = structure(Term),
+        %erlang:display(S),
     	Rec = opt2rec(Opt),
     	{ok, presentation(S, Rec)}
     catch
@@ -103,6 +118,9 @@ structure(Term)
 	when is_binary(Term)
 	-> {binary, Term};
 structure(Term)
+    when is_bitstring(Term) % incomplete number of bytes
+    -> {bitstring, Term};
+structure(Term)
 	when is_boolean(Term)
 	-> {boolean, Term};
 structure(Term)
@@ -110,7 +128,7 @@ structure(Term)
 	-> {float, Term};
 structure(Term)
 	when is_function(Term)
-	-> {function, Term};
+	-> {function, term_to_binary(Term)};
 structure(Term)
 	when is_integer(Term)
 	-> {integer, Term};
@@ -164,44 +182,87 @@ presentation(Struc, Rec)
     F = footer(Rec),
     lists:flatten(H ++ P ++ F);
 
-presentation({binary, B}, Rec)    % Binary
-    -> tag(binary, Rec),
+presentation({atom, B}, Rec)    % Atom
+    -> Tag = tag(atom, Rec),
        Enc = encoding(B),
        Raw = fold(Enc,Rec),
-       indent(Raw, Rec).
+       indent(Tag, Raw, Rec);
+
+presentation({binary, B}, Rec)    % Binary
+    -> Tag = tag(binary, Rec),
+       Enc = encoding(B),
+       Raw = fold(Enc,Rec),
+       indent(Tag, Raw, Rec);
+
+presentation({function, B}, Rec)    % Fun
+    -> Tag = tag(function, Rec),
+       Enc = encoding(B),
+       Raw = fold(Enc,Rec),
+       indent(Tag, Raw, Rec);      
+
+presentation(_, _) -> throw(invalid_type).
 
 %%-----------------------------------------------------------------------------
 %% @doc Add YAML tags if necessary
+%%      'types=true' is overriding yaml basic types
+%%      See http://erlang.org/doc/reference_manual/typespec.html#the-erlang-type-language
 %% @end
 %%-----------------------------------------------------------------------------
+tag(atom, Rec)   when Rec#hype.types =:= true
+    -> "!atom ";
+tag(atom, Rec)   when Rec#hype.tag =:= true
+    -> "!!str ";
+tag(binary, Rec) when Rec#hype.types =:= true
+    -> "!binary ";
+tag(binary, Rec) when Rec#hype.tag =:= true
+    -> "!!binary ";
+tag(bitstring, Rec) when Rec#hype.types =:= true
+    -> "!bitstring ";
+tag(bitstring, Rec) when Rec#hype.tag =:= true
+    -> "!!binary ";
+tag(boolean, Rec)   when Rec#hype.types =:= true
+    -> "!boolean ";
+tag(boolean, Rec)   when Rec#hype.tag =:= true
+    -> "!!bool ";
+tag(float, Rec)   when Rec#hype.types =:= true
+    -> "!float ";
+tag(float, Rec)   when Rec#hype.tag =:= true
+    -> "!!float ";
+tag(function, Rec)   when Rec#hype.types =:= true
+    -> "!function ";
+tag(function, Rec)   when Rec#hype.tag =:= true
+    -> "!! ";
 tag(_, _) -> [].
 
 %%-----------------------------------------------------------------------------
-%% @doc Verify or fix encoding
+%% @doc Encode to base64 when necessary
 %% @end
 %%-----------------------------------------------------------------------------
 encoding(B)
     when is_binary(B)
-    ->  erlang:binary_to_list(B);
+    ->  erlang:binary_to_list(base64:encode(B));
 encoding(B) -> B.
 
 %%-----------------------------------------------------------------------------
 %% @doc Fold data if necessary
 %% @end
 %%-----------------------------------------------------------------------------
-fold(R, _ ) -> R.
+fold(D, Rec)
+    when ( length(D) > Rec#hype.width )
+    -> split(D, Rec#hype.width) ;
+fold(D, _) -> D.
 
 %%-----------------------------------------------------------------------------
 %% @doc Indent data depending depth
 %% @end
 %%-----------------------------------------------------------------------------
-indent(L, Rec) 
+indent(_T, L, Rec) 
     when is_list(L)
     -> case io_lib:printable_list(L) of
-            false -> lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L);
+            false -> lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
             true  -> offset(Rec) ++ [L]
     	end;
-indent(L, Rec)
+indent(_T, L, Rec)
 	-> offset(Rec) ++ [L].
 
 %%-----------------------------------------------------------------------------
@@ -217,7 +278,15 @@ header(Rec) ->
             true  -> io_lib:format("%YAML ~ts ~ts", [?YAML_VERSION, T]) ;
             false -> []
         end,
-    string:strip(string:chomp(V), right) ++ io_lib:nl().
+    H = case V of
+            [] when Rec#hype.footer =:= true -> io_lib:format("---~ts", [io_lib:nl()]);
+            [] -> [];
+            _  ->  io_lib:format("~ts~ts---~ts", [V, io_lib:nl(), io_lib:nl()])
+        end,
+    case H of
+        [] -> [];
+        _  -> string:strip(string:chomp(H), right) ++ io_lib:nl()
+    end.
 
 %%-----------------------------------------------------------------------------
 %% @doc Create footer
