@@ -1,3 +1,3 @@
-# [WIP] hype Handsome YAML Processor for Erlang
+# [WIP] hype : Handsome YAML Processor for Erlang
 
 
