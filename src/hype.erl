@@ -26,14 +26,20 @@
 -export([encode/1, encode/2, print/1, print/2]).
 
 -define(YAML_VERSION, "1.2").
--define(PRESENT(T, Rec), 
+-define(PRESENT(Side, T, Rec), 
+        erlang:display({T, Rec#hype.depth}),
         Tag = tag(T, Rec),
+        erlang:display({tag, Tag}),
         Enc = encoding(B),
+        erlang:display({enc, Enc}),
         Raw = fold(Enc,Rec),
-        indent(Tag, Raw, comment(B, Rec), Rec)
+        erlang:display({raw, Raw}),
+        erlang:display({Side, right, Rec#hype.right}),
+        indent(T, Side, Tag, Raw, comment(B, Rec), Rec)
        ).
 
 -record(hype,	{depth     = -1    :: integer() % internal use for structure depth indentation
+                ,right     = simple :: atom()    % internal use for presentation : empty, simple, complex
                 ,canonical = false :: boolean() % use canonical representation
                 ,version   = false :: boolean() % show yaml version
                 ,types     = false :: boolean() % declare erlang types TAG ! tag:github.com/crownedgrouse/hype,2020:
@@ -43,15 +49,21 @@
                 ,indent    = "   " :: string()  % indentation to be used
                 ,footer    = false :: boolean() % add ... footer or not
                 ,comment   = false :: boolean() % add comment on data
+                ,records   = []    :: list()    % list of record definitions
                 }).
+
 %%-----------------------------------------------------------------------------
-%% @doc 
+%% @doc Return the indentation string from depth
 %% @end
 %%-----------------------------------------------------------------------------
 offset(Rec)
 	when is_record(Rec, hype)
 	-> string:copies(Rec#hype.indent, Rec#hype.depth).
 
+%%-----------------------------------------------------------------------------
+%% @doc Split a string in substrings of a given length
+%% @end
+%%-----------------------------------------------------------------------------
 split(D, L)
     when is_list(D),is_integer(L)
     -> split(D, L, []). 
@@ -64,6 +76,36 @@ split(D, L, Acc)
                 NAcc = string:sub_string(D, 1, L),
                 split(ND, L, Acc ++ [NAcc])
        end.
+
+%%-----------------------------------------------------------------------------
+%% @doc Test if a tuple is matching a declared record
+%% @end
+%%-----------------------------------------------------------------------------
+-spec is_declared(any(), any()) -> boolean().
+
+is_declared(Term, Rec)
+    when is_tuple(Term), is_record(Rec, hype)
+    -> 
+    LT = erlang:tuple_to_list(Term),
+    Key = hd(LT),
+    case is_atom(Key) of
+        false -> false ;
+        true -> 
+            L = Rec#hype.records,
+            case lists:keyfind(Key, 1, L) of
+                {Key, Def} 
+                    when is_list(Def), (length(Def) =:= (length(LT) - 1))
+                    -> true ;
+                _   -> false
+            end
+    end;
+is_declared(_, _) -> false.
+
+right(D, Rec)
+    when is_atom(D);is_binary(D);is_bitstring(D);is_boolean(D);is_float(D);is_function(D);is_integer(D);is_pid(D);is_port(D);is_reference(D)
+    -> Rec#hype{depth = (Rec#hype.depth), right = simple};
+right(_, Rec)
+    -> Rec#hype{depth = (Rec#hype.depth + 1), right = complex}.
 
 %%-----------------------------------------------------------------------------
 %% @doc Initialize record with proplists options or default value
@@ -81,6 +123,7 @@ opt2rec(Opt)
          ,indent    = proplists:get_value(indent,    Opt, R#hype.indent)
          ,footer    = proplists:get_value(footer,    Opt, R#hype.footer)
          ,comment   = proplists:get_value(comment,   Opt, R#hype.comment)
+         ,records   = proplists:get_value(records,   Opt, R#hype.records)
          }.
 
 
@@ -88,10 +131,19 @@ print(Term) -> print(Term, []).
 	
 
 print(Term, Opt)
-    -> case encode(Term, Opt) of
-            {ok, D}    -> io:format("~ts", [D]);
-            X -> throw(X)
-       end.
+    -> 
+    try 
+        case encode(Term, Opt) of
+                {ok, D} when is_list(D) -> 
+                    case io_lib:printable_list(D) of
+                        true  ->  io:format("~ts", [D]);
+                        false ->  throw(D)
+                    end;
+                X -> throw(X)
+        end
+    catch
+        _:R -> {error, R}
+    end.
 
 %%-----------------------------------------------------------------------------
 %% @doc Encode an Erlang Term to YAML
@@ -103,8 +155,8 @@ encode(Term)
 encode(Term, Opt)
     -> 
     try 
-    	S = structure(Term),
-        %erlang:display(S),
+    	S = structure(left, Term),
+        erlang:display(S),
     	Rec = opt2rec(Opt),
     	{ok, presentation(S, Rec)}
     catch
@@ -118,64 +170,64 @@ encode(Term, Opt)
 %%-----------------------------------------------------------------------------
 
 %% Lower types
-structure(Term)
+structure(Side, Term)
 	when is_atom(Term)
-	-> {atom, erlang:atom_to_list(Term)};
-structure(Term)
+	-> {atom, Side, erlang:atom_to_list(Term), Term};
+structure(Side, Term)
 	when is_binary(Term)
-	-> {binary, Term};
-structure(Term)
+	-> {binary, Side, Term, Term};
+structure(Side, Term)
     when is_bitstring(Term) % incomplete number of bytes
-    -> {bitstring, Term};
-structure(Term)
+    -> {bitstring, Side, Term, Term};
+structure(Side, Term)
 	when is_boolean(Term)
-	-> {boolean, Term};
-structure(Term)
+	-> {boolean, Side, Term, Term};
+structure(Side, Term)
 	when is_float(Term)
-	-> {float, io_lib:format("~p",[Term])};
-structure(Term)
+	-> {float, Side, io_lib:format("~p",[Term]), Term};
+structure(Side, Term)
 	when is_function(Term)
-	-> {function, term_to_binary(Term)};
-structure(Term)
+	-> {function, Side, term_to_binary(Term), Term};
+structure(Side, Term)
 	when is_integer(Term)
-	-> {integer, lists:flatten(io_lib:format("~p",[Term]))};
-structure(Term)
+	-> {integer, Side, lists:flatten(io_lib:format("~p",[Term])), Term};
+structure(Side, Term)
 	when is_pid(Term)
-	-> {pid, term_to_binary(Term)};
-structure(Term)
+	-> {pid, Side, term_to_binary(Term), Term};
+structure(Side, Term)
 	when is_port(Term)
-	-> {port, term_to_binary(Term)};
-structure(Term)
+	-> {port, Side, term_to_binary(Term), Term};
+structure(Side, Term)
 	when is_reference(Term)
-	-> {reference, term_to_binary(Term)};
+	-> {reference, Side, term_to_binary(Term), Term};
 %% Higher types
-structure(Term)
+structure(Side, Term)
 	when is_tuple(Term)
 	-> 
-	Fun = fun(X) -> [structure(X)] end,
+	Fun = fun(X) -> [structure(right, X)] end,
 	Data = lists:flatmap(Fun, erlang:tuple_to_list(Term)),
-	{tuple, Data};
-structure(Term)
+	{tuple, Side, Data, Term};
+structure(Side, Term)
 	when is_map(Term)
 	-> 
-	Fun = fun(X) -> [structure(X)] end,
+	Fun = fun(X) -> [structure(right,X)] end,
 	Data = lists:flatmap(Fun, maps:to_list(Term)),
-	{map, Data};
-structure(Term)
+	{map, Side, Data, Term};
+structure(Side, Term)
 	when is_list(Term)
 	-> 
     % Check if it is a string or a list of types
     case io_lib:printable_list(Term) of
-        true  -> {string, Term};
+        true  -> {string, Side, Term};
         false -> 
-            Fun = fun(X) -> [structure(X)] end,
+            Fun = fun(X) -> [structure(right,X)] end,
             Data = lists:flatmap(Fun, Term),
-            {list, Data}
+            {list, Side, Data, Term}
     end;
 %% Error unhandled type
-structure(Term)
+structure(Side, Term)
 	-> 
-	throw({unexpected, Term}).
+	throw({unexpected, Side, Term}).
 
 %%-----------------------------------------------------------------------------
 %% @doc Present structured data to YAML format
@@ -187,23 +239,81 @@ presentation(Struc, Rec)
     H = header(Rec),
     P = presentation(Struc, Rec#hype{depth=0}), % Init depth to 0
     F = footer(Rec),
-    lists:flatten(H ++ P ++ F ++ io_lib:nl());
+    lists:flatten(H ++ P ++ F);
 
-presentation({atom, B}, Rec)      % Atom
-    -> ?PRESENT(atom, Rec);
-presentation({binary, B}, Rec)    % Binary
-    -> ?PRESENT(binary, Rec);
-presentation({float, B}, Rec)     % Float
-    -> ?PRESENT(float, Rec);      
-presentation({function, B}, Rec)  % Fun
-    -> ?PRESENT(function, Rec);    
-presentation({integer, B}, Rec)   % Integer
-    -> ?PRESENT(integer, Rec);        
-presentation({pid, B}, Rec)       % Pid
-    -> ?PRESENT(pid, Rec);      
+% Simple types
+presentation({atom, Side, B, _}, Rec)      % Atom
+    -> ?PRESENT(Side, atom, Rec);
+presentation({binary, Side, B, _}, Rec)    % Binary
+    -> ?PRESENT(Side, binary, Rec);
+presentation({float, Side, B, _}, Rec)     % Float
+    -> ?PRESENT(Side, float, Rec);      
+presentation({function, Side, B, _}, Rec)  % Fun
+    -> ?PRESENT(Side, function, Rec);    
+presentation({integer, Side, B, _}, Rec)   % Integer
+    -> ?PRESENT(Side, integer, Rec);        
+presentation({pid, Side, B, _}, Rec)       % Pid
+    -> ?PRESENT(Side, pid, Rec);  
+% Complex types
+presentation({tuple, _, B, _}, Rec)               % Tuple {X} = tuple = unordered set with null value
+    when is_list(B), (length(B) =:= 1)
+    -> [X] = B,
+       presentation(X, Rec#hype{right=empty});
+presentation({tuple, _, B, _}, Rec)               % Tuple {X, Y} = property = omap
+    when is_list(B), (length(B) =:= 2)
+    -> [{A, _, C, D}, Y] = B,
+       presentation({A, left, C, D}, Rec) ++ presentation(Y, right(Y,Rec));
+presentation({tuple, Side, [X|_]= B, Term}, Rec)     % Tuple {X, Y, Z ...} = record = set or omap (if record declared)
+    when is_list(B), (length(B) > 2)
+    -> 
+    Size = length(B),
+    case X of
+        {atom, RKT} -> % Maybe a record
+            RecordTag = erlang:list_to_atom(RKT),
+            case (is_record(Term, RecordTag, Size) or is_declared(Term, Rec)) of
+                false  -> ?PRESENT(Side, tuple, Rec);
+                true   -> ?PRESENT(Side, record, Rec)
+            end;
+        {_, _} -> % Not a record
+                  ?PRESENT(Side, tuple, Rec)
+    end;
 
 presentation(_, _) -> throw(invalid_type).
 
+%%-----------------------------------------------------------------------------
+%% @doc Create header 
+%% @end
+%%-----------------------------------------------------------------------------
+header(Rec) -> 
+    T = case Rec#hype.types of
+            true -> "TAG ! tag:github.com/crownedgrouse/hype,2020" ;
+            false -> []
+        end,
+    V = case Rec#hype.version of
+            true  -> io_lib:format("%YAML ~ts ~ts", [?YAML_VERSION, T]) ;
+            false -> []
+        end,
+    H = case V of
+            [] when Rec#hype.footer =:= true -> io_lib:format("---~ts", [io_lib:nl()]);
+            [] -> [];
+            _  ->  io_lib:format("~ts~ts---~ts", [V, io_lib:nl(), io_lib:nl()])
+        end,
+    case H of
+        [] -> [];
+        _  -> string:strip(string:chomp(H), right) ++ io_lib:nl()
+    end.
+
+%%-----------------------------------------------------------------------------
+%% @doc Create footer
+%% @end
+%%-----------------------------------------------------------------------------
+-spec footer(tuple()) -> list().
+
+footer(Rec)
+    when Rec#hype.footer =:= true
+    -> io_lib:nl() ++ "..." ++ io_lib:nl();
+footer(_)
+    -> [].
 %%-----------------------------------------------------------------------------
 %% @doc Comment (only binary terms)
 %% @end
@@ -247,6 +357,18 @@ tag(function, Rec)   when Rec#hype.types =:= true
     -> "!function ";
 tag(function, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
     -> "!!binary ";
+tag(tuple, Rec)   when Rec#hype.types =:= true
+    -> "!tuple ";
+tag(tuple, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
+    -> "!!set ";
+tag(property, Rec)   when Rec#hype.types =:= true
+    -> "!property ";
+tag(property, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
+    -> "!!omap ";
+tag(record, Rec)   when Rec#hype.types =:= true
+    -> "!record ";
+tag(record, Rec)   when Rec#hype.tag =:= true; Rec#hype.canonical =:= true
+    -> "!!omap ";
 tag(_, _) -> [].
 
 %%-----------------------------------------------------------------------------
@@ -271,57 +393,36 @@ fold(D, _) -> D.
 %% @doc Indent data depending depth
 %% @end
 %%-----------------------------------------------------------------------------
-indent(T, L, C, Rec) 
-    when is_list(L)
-    ->  % erlang:display(L),
-        case io_lib:printable_list(L) of
-            false when Rec#hype.canonical =:= false, 
-                       Rec#hype.tag =:= false
-                -> [$|] ++ C ++ io_lib:nl() ++lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
-            false when Rec#hype.canonical =:= false, 
-                       Rec#hype.tag =:= true
-                -> T ++ [$|] ++ C ++ io_lib:nl() ++ lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
-            false when Rec#hype.canonical =:= true
-                -> T ++ [$", $\\] ++ io_lib:nl() ++ offset(Rec) ++ lists:join([$\\, io_lib:nl()], lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L)) ++ [$"];
-            true  when Rec#hype.tag =:= false 
-                -> offset(Rec) ++ [L] ++ C ++ io_lib:nl() ;
-            true  when Rec#hype.tag =:= true 
-                -> T ++ offset(Rec) ++ [L] ++ C ++ io_lib:nl()
-    	end;
-indent(_T, L, C, Rec)
-	-> offset(Rec) ++ [L] ++ C ++ io_lib:nl().
+% indent(T, L, C, Rec) 
+%     when is_list(L)
+%     ->  case io_lib:printable_list(L) of
+%             false when Rec#hype.canonical =:= false, 
+%                        Rec#hype.tag =:= false
+%                 -> [$|] ++ C ++ io_lib:nl() ++lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
+%             false when Rec#hype.canonical =:= false, 
+%                        Rec#hype.tag =:= true
+%                 -> T ++ [$|] ++ C ++ io_lib:nl() ++ lists:flatmap(fun(E) -> [offset(Rec) ++ [E] ++ io_lib:nl()] end, L);
+%             false when Rec#hype.canonical =:= true
+%                 -> T ++ [$", $\\] ++ io_lib:nl() ++ offset(Rec) ++ lists:join([$\\, io_lib:nl()], lists:flatmap(fun(E) -> [offset(Rec) ++ [E]] end, L)) ++ [$"];
+%             true  when Rec#hype.tag =:= false 
+%                 -> offset(Rec) ++ [L] ++ C ++ io_lib:nl() ;
+%             true  when Rec#hype.tag =:= true 
+%                 -> T ++ offset(Rec) ++ [L] ++ C ++ io_lib:nl()
+%     	end;
 
-%%-----------------------------------------------------------------------------
-%% @doc Create header 
-%% @end
-%%-----------------------------------------------------------------------------
-header(Rec) -> 
-	T = case Rec#hype.types of
-            true -> "TAG ! tag:github.com/crownedgrouse/hype,2020" ;
-            false -> []
-        end,
-	V = case Rec#hype.version of
-            true  -> io_lib:format("%YAML ~ts ~ts", [?YAML_VERSION, T]) ;
-            false -> []
-        end,
-    H = case V of
-            [] when Rec#hype.footer =:= true -> io_lib:format("---~ts", [io_lib:nl()]);
-            [] -> [];
-            _  ->  io_lib:format("~ts~ts---~ts", [V, io_lib:nl(), io_lib:nl()])
-        end,
-    case H of
-        [] -> [];
-        _  -> string:strip(string:chomp(H), right) ++ io_lib:nl()
-    end.
+indent(atom, left, T, L, C, Rec)
+    when Rec#hype.right =:= empty
+    -> offset(Rec) ++ T ++ [L] ++ C  ++ io_lib:nl() ;
+indent(atom, left, T, L, _, Rec)
+    when Rec#hype.right =:= simple
+    -> offset(Rec) ++ T ++ [L] ++ ": ";
+indent(atom, left, T, L, C, Rec)
+    when Rec#hype.right =:= complex
+    -> offset(Rec) ++ T ++ [L] ++ ": " ++ C  ++ io_lib:nl();
+indent(atom, right, T, L, C, _Rec)
+	->  T ++ [L] ++ C ++ io_lib:nl();
+%indent(tuple, left, T, L, _, Rec)    ->
 
-%%-----------------------------------------------------------------------------
-%% @doc Create footer
-%% @end
-%%-----------------------------------------------------------------------------
--spec footer(tuple()) -> list().
+indent(A, S, T, L, C, Rec)
+    -> throw({missing_type, A, S, T, L, C, Rec}).
 
-footer(Rec)
-    when Rec#hype.footer =:= true
-    -> io_lib:nl() ++ "..." ++ io_lib:nl();
-footer(_)
-    -> [].
