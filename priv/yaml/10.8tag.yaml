@@ -1,0 +1,21 @@
+%YAML 1.2
+---
+!!map {
+  !!str "A null" : !!null "null",
+  !!str "Booleans: !!seq [
+    !!bool "true", !!bool "false"
+  ],
+  !!str "Integers": !!seq [
+    !!int "0", !!int "-0",
+    !!int "3", !!int "-19"
+  ],
+  !!str "Floats": !!seq [
+    !!float "0.", !!float "-0.0",
+    !!float "12e03", !!float "-2E+05"
+  ],
+  !!str "Invalid": !!seq [
+    # Rejected by the schema
+    True, Null, 0o7, 0x3A, +12.3,
+  ],
+}
+...
